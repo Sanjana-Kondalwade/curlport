@@ -1,5 +1,5 @@
 diff --git a/src/tool_operate.h b/src/tool_operate.h
-index 7e886f6..c0955ce 100644
+index 69b304d..ce402c8 100644
 --- a/src/tool_operate.h
 +++ b/src/tool_operate.h
 @@ -29,6 +29,36 @@
@@ -29,7 +29,7 @@ index 7e886f6..c0955ce 100644
 +/* Encoding function declarations */
 +encoding_mode_t encoding_parse_mode(const char *encoding_str);
 +unsigned short encoding_get_ccsid(const char *encoding_str);
-+int encoding_init(encoding_ctx_t *ctx, const char *encoding_str, 
++int encoding_init(encoding_ctx_t *ctx, const char *encoding_str,
 +                  int is_upload);
 +int encoding_convert(encoding_ctx_t *ctx, char *buffer, size_t *size,
 +                     size_t max_size);
@@ -37,9 +37,9 @@ index 7e886f6..c0955ce 100644
 +#endif
 +
  struct per_transfer {
+   char errorbuffer[CURL_ERROR_SIZE];
    /* double linked */
-   struct per_transfer *next;
-@@ -46,6 +76,7 @@ struct per_transfer {
+@@ -47,6 +77,7 @@ struct per_transfer {
    curl_off_t urlnum; /* the index of the given URL */
    char *outfile;
    int infd;
@@ -47,9 +47,9 @@ index 7e886f6..c0955ce 100644
    struct ProgressData progressbar;
    struct OutStruct outs;
    struct OutStruct heads;
-@@ -69,7 +100,12 @@ struct per_transfer {
-   char *uploadfile;
-   char errorbuffer[CURL_ERROR_SIZE];
+@@ -68,7 +99,12 @@ struct per_transfer {
+   BIT(dltotal_added); /* if the total has been added from this */
+   BIT(ultotal_added);
    BIT(infdopen); /* TRUE if infd needs closing */
 +  BIT(use_fopen); /* TRUE if using fopen/fread instead of open/read */
 +  BIT(convert_ascii); /* TRUE if converting to ASCII on upload */
