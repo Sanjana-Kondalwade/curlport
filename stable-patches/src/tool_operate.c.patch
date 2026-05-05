@@ -1,12 +1,11 @@
 diff --git a/src/tool_operate.c b/src/tool_operate.c
-index 9a29b8e..5e1ed24 100644
+index 3ad30ca..8fb5308 100644
 --- a/src/tool_operate.c
 +++ b/src/tool_operate.c
-@@ -23,6 +23,15 @@
-  ***************************************************************************/
- #include "tool_setup.h"
+@@ -25,6 +25,14 @@
  
-+
+ #include "curlx/nonblock.h" /* for curlx_nonblock() */
+ 
 +#ifdef __MVS__
 +#include <zos.h>
 +#include <fcntl.h>
@@ -18,18 +17,22 @@ index 9a29b8e..5e1ed24 100644
  #ifdef HAVE_LOCALE_H
  #  include <locale.h>
  #endif
-@@ -86,6 +95,10 @@
- CURL_EXTERN CURLcode curl_easy_perform_ev(CURL *easy);
- #endif
+@@ -236,6 +244,14 @@ static struct per_transfer *del_per_transfer(struct per_transfer *per)
+     transfersl = p;
  
-+
-+
-+
-+
- #define CURL_CA_CERT_ERRORMSG                                              \
-   "More details here: https://curl.se/docs/sslcerts.html\n\n"              \
-   "curl failed to verify the legitimacy of the server and therefore "      \
-@@ -238,6 +251,17 @@ static struct per_transfer *del_per_transfer(struct per_transfer *per)
+   curlx_free(per->uploadfile);
++#ifdef __MVS__
++  /* Clean up encoding context */
++  if(per->encoding_ctx) {
++    encoding_cleanup((encoding_ctx_t*)per->encoding_ctx);
++    free(per->encoding_ctx);
++    per->encoding_ctx = NULL;
++  }
++#endif
+   curlx_free(per->outfile);
+   curlx_free(per->url);
+   curl_easy_cleanup(per->curl);
+@@ -244,6 +260,17 @@ static struct per_transfer *del_per_transfer(struct per_transfer *per)
    return n;
  }
  
@@ -39,7 +42,7 @@ index 9a29b8e..5e1ed24 100644
 +{
 +  if(filename == NULL || strlen(filename) < 2)
 +    return 0;
-+  
++
 +  return (filename[0] == '/' && filename[1] == '/');
 +}
 +#endif
@@ -47,7 +50,7 @@ index 9a29b8e..5e1ed24 100644
  static CURLcode pre_transfer(struct per_transfer *per)
  {
    curl_off_t uploadfilesize = -1;
-@@ -245,6 +269,26 @@ static CURLcode pre_transfer(struct per_transfer *per)
+@@ -251,6 +278,26 @@ static CURLcode pre_transfer(struct per_transfer *per)
    CURLcode result = CURLE_OK;
  
    if(per->uploadfile && !stdin_upload(per->uploadfile)) {
@@ -63,7 +66,7 @@ index 9a29b8e..5e1ed24 100644
 +      per->use_fopen = TRUE;
 +      per->infd = fileno(per->infp);  /* Get fd for compatibility */
 +      per->infdopen = TRUE;
-+      
++
 +      /* Cannot determine size for datasets - they are record-based.
 +       * Leave uploadfilesize as -1 to indicate unknown size. */
 +      uploadfilesize = -1;
@@ -74,7 +77,7 @@ index 9a29b8e..5e1ed24 100644
      /* VMS Note:
       *
       * Reading binary from files can be a problem... Only FIXED, VAR
-@@ -293,6 +337,7 @@ static CURLcode pre_transfer(struct per_transfer *per)
+@@ -299,6 +346,7 @@ static CURLcode pre_transfer(struct per_transfer *per)
      /* we ignore file size for char/block devices, sockets, etc. */
      if(S_ISREG(fileinfo.st_mode))
        uploadfilesize = fileinfo.st_size;
@@ -82,7 +85,7 @@ index 9a29b8e..5e1ed24 100644
  
  #ifdef DEBUGBUILD
      /* allow dedicated test cases to override */
-@@ -674,6 +719,21 @@ static CURLcode post_close_output(struct per_transfer *per,
+@@ -694,6 +742,21 @@ static CURLcode post_close_output(struct per_transfer *per,
    /* Close the outs file */
    if(outs->fopened && outs->stream) {
      rc = curlx_fclose(outs->stream);
@@ -104,13 +107,13 @@ index 9a29b8e..5e1ed24 100644
      if(!result && rc) {
        /* something went wrong in the writing process */
        result = CURLE_WRITE_ERROR;
-@@ -732,8 +792,18 @@ static CURLcode post_per_transfer(struct per_transfer *per,
+@@ -752,8 +815,18 @@ static CURLcode post_per_transfer(struct per_transfer *per,
    }
    else
  #endif
 -    if(per->infdopen)
 -      curlx_close(per->infd);
-+    if(per->infdopen) {
++    if(per->infdopen){
 +#ifdef __MVS__
 +      if(per->use_fopen && per->infp) {
 +        fclose(per->infp);
@@ -118,29 +121,14 @@ index 9a29b8e..5e1ed24 100644
 +      }
 +      else
 +#endif
-+      {
-+        curlx_close(per->infd);
-+      }
-+    }
++     {
++       curlx_close(per->infd);
++     }
++   }
  
    if(!per->skip) {
      result = post_check_result(per, result);
-@@ -781,6 +851,14 @@ static CURLcode post_per_transfer(struct per_transfer *per,
-   curlx_free(per->url);
-   curlx_free(per->outfile);
-   curlx_free(per->uploadfile);
-+#ifdef __MVS__
-+  /* Clean up encoding context */
-+  if(per->encoding_ctx) {
-+    encoding_cleanup((encoding_ctx_t*)per->encoding_ctx);
-+    free(per->encoding_ctx);
-+    per->encoding_ctx = NULL;
-+  }
-+#endif
-   curl_slist_free_all(per->hdrcbdata.headlist);
-   per->hdrcbdata.headlist = NULL;
-   return result;
-@@ -1089,12 +1167,23 @@ static CURLcode setup_outfile(struct OperationConfig *config,
+@@ -1134,12 +1207,23 @@ static CURLcode setup_outfile(struct OperationConfig *config,
                               "ctx=stm", "rfm=stmlf", "rat=cr", "mrs=0");
  #else
      /* open file for output: */
@@ -164,18 +152,18 @@ index 9a29b8e..5e1ed24 100644
      outs->fopened = TRUE;
      outs->stream = file;
      outs->init = config->resume_from;
-@@ -1278,7 +1367,35 @@ static CURLcode create_single(struct OperationConfig *config,
+@@ -1396,7 +1480,35 @@ static CURLcode create_single(struct OperationConfig *config,
          curl_easy_cleanup(curl);
          return CURLE_FAILED_INIT;
        }
-+      if(config->upload_encoding && !strcasecmp(config->upload_encoding, "ascii"))
++if(config->upload_encoding && !strcasecmp(config->upload_encoding, "ascii"))
 +        per->convert_ascii = TRUE;
 +#ifdef __MVS__
 +      /* Initialize encoding context for z/OS UNIX file upload */
 +      if(config->upload_encoding_unix && !per->convert_ascii) {
 +        per->encoding_ctx = malloc(sizeof(encoding_ctx_t));
 +        if(per->encoding_ctx) {
-+          if(encoding_init((encoding_ctx_t*)per->encoding_ctx, 
++          if(encoding_init((encoding_ctx_t*)per->encoding_ctx,
 +                          config->upload_encoding_unix, 1) != 0) {
 +            free(per->encoding_ctx);
 +            per->encoding_ctx = NULL;
@@ -183,28 +171,27 @@ index 9a29b8e..5e1ed24 100644
 +        }
 +      }
 +#endif
-+    }
+     }
 +#ifdef __MVS__
 +    /* Initialize encoding context for download */
 +    if(config->download_encoding) {
 +      per->encoding_ctx = malloc(sizeof(encoding_ctx_t));
 +      if(per->encoding_ctx) {
-+        if(encoding_init((encoding_ctx_t*)per->encoding_ctx, 
++        if(encoding_init((encoding_ctx_t*)per->encoding_ctx,
 +                        config->download_encoding, 0) != 0) {
 +          free(per->encoding_ctx);
 +          per->encoding_ctx = NULL;
 +        }
 +      }
-     }
++   }
 +#endif
      per->config = config;
      per->curl = curl;
      per->urlnum = u->num;
-@@ -2397,3 +2514,197 @@ CURLcode operate(int argc, argv_item_t argv[])
+@@ -2518,3 +2630,195 @@ CURLcode operate(int argc, argv_item_t argv[])
  
    return result;
  }
-+
 +
 +#ifdef __MVS__
 +/* Encoding conversion functions for z/OS */
@@ -215,12 +202,12 @@ index 9a29b8e..5e1ed24 100644
 +  /* Explicit NULL check at function start */
 +  if(!encoding_str)
 +    return ENCODING_NONE;
-+    
++
 +  if(!strcasecmp(encoding_str, "auto"))
 +    return ENCODING_AUTO;
 +  else if(!strcasecmp(encoding_str, "binary"))
 +    return ENCODING_BINARY;
-+  else if(!strcasecmp(encoding_str, "ascii") || 
++  else if(!strcasecmp(encoding_str, "ascii") ||
 +          !strcasecmp(encoding_str, "e2a"))
 +    return ENCODING_E2A;
 +  else if(!strcasecmp(encoding_str, "a2e"))
@@ -234,12 +221,12 @@ index 9a29b8e..5e1ed24 100644
 +{
 +  if(!encoding_str)
 +    return 0;
-+    
++
 +  if(!strcasecmp(encoding_str, "auto"))
 +    return 0;
 +  else if(!strcasecmp(encoding_str, "binary"))
 +    return 65535;
-+  else if(!strcasecmp(encoding_str, "ascii") || 
++  else if(!strcasecmp(encoding_str, "ascii") ||
 +          !strcasecmp(encoding_str, "e2a"))
 +    return 819;  /* ISO 8859-1 (ASCII-compatible) */
 +  else if(!strcasecmp(encoding_str, "a2e"))
@@ -251,17 +238,17 @@ index 9a29b8e..5e1ed24 100644
 +}
 +
 +/* Initialize encoding context from encoding string */
-+int encoding_init(encoding_ctx_t *ctx, const char *encoding_str, 
++int encoding_init(encoding_ctx_t *ctx, const char *encoding_str,
 +                  int is_upload)
 +{
 +  if(!ctx)
 +    return -1;
-+    
++
 +  memset(ctx, 0, sizeof(encoding_ctx_t));
-+  
++
 +  ctx->mode = encoding_parse_mode(encoding_str);
 +  ctx->ccsid = encoding_get_ccsid(encoding_str);
-+  
++
 +  if(!is_upload && encoding_str) {
 +    /* For downloads, if the user requested ASCII/819, we don't need conversion
 +       because the network data is already ASCII. We only need to tag it. */
@@ -280,19 +267,19 @@ index 9a29b8e..5e1ed24 100644
 +      ctx->from_encoding = strdup("ISO8859-1");
 +      ctx->to_encoding = strdup(encoding_str);
 +    }
-+    
++
 +    if(!ctx->from_encoding || !ctx->to_encoding) {
 +      encoding_cleanup(ctx);
 +      return -1;
 +    }
-+    
++
 +    /* If source and target encodings are the same, no conversion is needed */
 +    if(!strcasecmp(ctx->from_encoding, ctx->to_encoding)) {
 +      encoding_cleanup(ctx);
 +      ctx->mode = ENCODING_NONE;
 +      return 0;
 +    }
-+    
++
 +    iconv_t cd = iconv_open(ctx->to_encoding, ctx->from_encoding);
 +    if(cd == (iconv_t)-1) {
 +      encoding_cleanup(ctx);
@@ -300,7 +287,7 @@ index 9a29b8e..5e1ed24 100644
 +    }
 +    ctx->iconv_cd = (void*)cd;
 +  }
-+  
++
 +  return 0;
 +}
 +
@@ -310,30 +297,30 @@ index 9a29b8e..5e1ed24 100644
 +{
 +  if(!ctx || !buffer || !size)
 +    return -1;
-+    
++
 +  switch(ctx->mode) {
 +  case ENCODING_NONE:
 +  case ENCODING_AUTO:
 +  case ENCODING_BINARY:
 +    return 0;
-+    
++
 +  case ENCODING_E2A:
 +    __e2a_s(buffer);
 +    return 0;
-+    
++
 +  case ENCODING_A2E:
 +    __a2e_s(buffer);
 +    return 0;
-+    
++
 +  case ENCODING_ICONV: {
 +    if(!ctx->iconv_cd)
 +      return -1;
-+      
++
 +    iconv_t cd = (iconv_t)ctx->iconv_cd;
 +    char *outbuf = malloc(max_size);
 +    if(!outbuf)
 +      return -1;
-+    
++
 +    /* Save original buffer content in case conversion fails */
 +    char *backup_buffer = malloc(*size);
 +    if(!backup_buffer) {
@@ -341,16 +328,16 @@ index 9a29b8e..5e1ed24 100644
 +      return -1;
 +    }
 +    memcpy(backup_buffer, buffer, *size);
-+      
++
 +    char *inptr = buffer;
 +    char *outptr = outbuf;
 +    size_t inleft = *size;
 +    size_t outleft = max_size;
-+    
++
 +    /* Reset conversion state */
 +    iconv(cd, NULL, NULL, NULL, NULL);
 +    size_t result = iconv(cd, &inptr, &inleft, &outptr, &outleft);
-+    
++
 +    if(result == (size_t)-1) {
 +      /* Conversion failed - restore original buffer */
 +      memcpy(buffer, backup_buffer, *size);
@@ -358,18 +345,18 @@ index 9a29b8e..5e1ed24 100644
 +      free(outbuf);
 +      return -1;
 +    }
-+    
++
 +    /* Conversion succeeded - copy converted data to buffer */
 +    size_t converted_size = max_size - outleft;
 +    memcpy(buffer, outbuf, converted_size);
 +    *size = converted_size;
-+    
++
 +    free(backup_buffer);
 +    free(outbuf);
 +    return 0;
 +  }
 +  }
-+  
++
 +  return -1;
 +}
 +
@@ -378,23 +365,22 @@ index 9a29b8e..5e1ed24 100644
 +{
 +  if(!ctx)
 +    return;
-+    
++
 +  if(ctx->from_encoding) {
 +    free(ctx->from_encoding);
 +    ctx->from_encoding = NULL;
 +  }
-+  
++
 +  if(ctx->to_encoding) {
 +    free(ctx->to_encoding);
 +    ctx->to_encoding = NULL;
 +  }
-+  
++
 +  if(ctx->iconv_cd) {
 +    iconv_close((iconv_t)ctx->iconv_cd);
 +    ctx->iconv_cd = NULL;
 +  }
-+  
++
 +  memset(ctx, 0, sizeof(encoding_ctx_t));
 +}
 +#endif /* __MVS__ */
-+
