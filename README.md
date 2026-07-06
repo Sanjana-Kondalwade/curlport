@@ -1,3 +1,5 @@
+[![CodeQL](https://github.com/Sanjana-Kondalwade/curlport/actions/workflows/codeql.yml/badge.svg)](https://github.com/Sanjana-Kondalwade/curlport/actions/workflows/codeql.yml)
+
 [![Automatic version updates](https://github.com/zopencommunity/curlport/actions/workflows/bump.yml/badge.svg)](https://github.com/zopencommunity/curlport/actions/workflows/bump.yml)
 
 ## CURL
